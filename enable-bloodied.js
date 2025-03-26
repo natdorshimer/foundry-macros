@@ -71,9 +71,6 @@ const setTokenImageByStateFuzzy = async (token, state) => {
     await setTokenImageByFile(_token, file)
 }
 
-await toggleTokenImage();
-
-
 const getCurrentState = (token) => {
     const stateToFile = token.actor.flags?.personal?.tokens?.stateToFile;
     if (!stateToFile) return null;
