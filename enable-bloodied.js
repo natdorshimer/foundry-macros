@@ -1,5 +1,5 @@
 const getStates = (actor) => {
-    const stateToFile = actor.flags?.personal?.tokens?.stateToFile;
+    const stateToFile = getStateToFile(actor);
     if (!stateToFile) return {};
     return Object.keys(stateToFile);
 }
@@ -9,7 +9,9 @@ const getStateToFile = (actor) => {
 }
 
 const getFileForState = (actor, state) => {
-    const stateToFile = actor.flags.personal.tokens.stateToFile;
+    const stateToFile = getStateToFile(actor);
+    if (!stateToFile) return null;
+
     return stateToFile[state];
 }
 
@@ -37,14 +39,11 @@ const setTokenImageByFile = async (token, file) => {
 
 const getCurrentSelectionForToken = (token) => {
     const fileName = token.document.texture.src;
-    const stateToFile = token.actor.flags?.personal?.tokens?.stateToFile;
+    const stateToFile = getStateToFile(token.actor);
     if (!stateToFile) return null;
 
     const res = Object.entries(stateToFile).find(([_, value]) => value === fileName);
-    if (res) {
-        return res[0];
-    }
-    return null;
+    return res ? res[0] : null;
 }
 
 const toggleTokenImage = async () => {
@@ -63,7 +62,7 @@ const toggleTokenImage = async () => {
 }
 
 const setTokenImageByStateFuzzy = async (token, state) => {
-    const stateToFile = token.actor.flags.personal.tokens.stateToFile;
+    const stateToFile = getStateToFile(token.actor);
     const res = Object.entries(stateToFile).find(([stateKey, _]) => stateKey.toLowerCase().includes(state.toLowerCase()));
     if (!res) return;
 
@@ -72,32 +71,41 @@ const setTokenImageByStateFuzzy = async (token, state) => {
 }
 
 const getCurrentState = (token) => {
-    const stateToFile = token.actor.flags?.personal?.tokens?.stateToFile;
+    const stateToFile = getStateToFile(token.actor);
     if (!stateToFile) return null;
+
     const file = token.document.texture.src;
     return Object.entries(stateToFile).find(([state, value]) => value === file)[0];
 }
 
 const isCurrentTokenBloodied = (token) => {
+    return isCurrentTokenStateFuzzy(token, "bloodied");
+}
+
+const isCurrentTokenStateFuzzy = (token, state) => {
     const stateToFile = getStateToFile(token.actor);
     if (!stateToFile) return false;
     
     const currentState = getCurrentState(token);
     if (!currentState) return false;
 
-    return currentState.toLowerCase().includes("bloodied");
+    return currentState.toLowerCase().includes(state.toLowerCase());
 }
 
 Hooks.on("updateActor", async (actor, _) => {
-    const is_bloodied = actor.system.attributes.hp.value / actor.system.attributes.hp.max <= 0.5;
-    const bloody_enabled = actor.flags?.personal?.tokens?.bloodied;
+    const hp = actor.system.attributes.hp
+    const is_bloodied = hp.value / hp.max <= 0.5;
 
+    const bloody_enabled = actor.flags?.personal?.tokens?.bloodied;
     const isTokenBloodied = isCurrentTokenBloodied(_token);
-    if (is_bloodied && bloody_enabled && !isTokenBloodied) {
+
+    if (!bloody_enabled) return;
+
+    if (is_bloodied && !isTokenBloodied) {
         await setTokenImageByStateFuzzy(_token, "bloodied");
     }
 
-    if (!is_bloodied && bloody_enabled && isTokenBloodied) {
+    if (!is_bloodied && isTokenBloodied) {
         await toggleTokenImage();
     }
 });

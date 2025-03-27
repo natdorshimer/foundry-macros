@@ -1,6 +1,7 @@
 const getStates = (actor) => {
     const stateToFile = actor.flags?.personal?.tokens?.stateToFile;
     if (!stateToFile) return {};
+
     return Object.keys(stateToFile);
 }
 
@@ -8,7 +9,16 @@ const getStateToFile = (actor) => {
     return actor.flags.personal.tokens.stateToFile
 }
 
+const areFlagsInitialized = (actor) => {
+    const tokens = actor.flags?.personal?.tokens;
+    return tokens && tokens?.stateToFile;
+}
+
 const initFlags = async (actor) => {
+    if (areFlagsInitialized(actor)) { 
+        return;
+    }
+
     const personal = actor.flags.personal || {};
     personal.tokens = personal.tokens || {};
     personal.tokens.stateToFile = personal.tokens.stateToFile || {};
@@ -26,6 +36,12 @@ const setStateFlag = async (actor, state, path) => {
     await actor.update(update_obj);
 }
 
+const deleteImageFromState = async (actor, state) => {
+    await actor.update({
+        [`flags.personal.tokens.stateToFile.-=${state}`]: null
+    });
+}
+
 const setBloodyEnabled = async (actor, enabled) => {
     await actor.update({
         "flags.personal.tokens.bloodied": enabled
@@ -37,46 +53,37 @@ const getFileForState = (actor, state) => {
     return stateToFile[state];
 }
 
-const deleteImageFromState = async (actor, state) => {
-    await _token.actor.update({
-        [`flags.personal.tokens.stateToFile.-=${state}`]: null
-    });
-}
-
-
 const promptFileSelection = ({ type = "image", current = "" } = {}) => {
     try {
         return new Promise((resolve) => {
             new FilePicker({
               type,
               current,
-              callback: (path) => {
-                resolve(path); // Resolve the promise when a file is selected
-              }
+              callback: resolve
             }).render(true);
           });
     } catch (error) {
         console.log("Error in promptFileSelection", error);
         return null;
     }
-    
   }
 
-const promptForFileName = async (defaultValue = null) => {
+const promptForStateName = async (defaultValue = null) => {
     try {
         const defaultVal = defaultValue || "";
+        const fileNameInputId = "file-name-input";
+
         return await Dialog.wait({
             title: "Input File Name",
             content: `
-                <p>Input name of file:</p>
-                <input type="text" id="file-name-input" value="${defaultVal}" style="width:100%" />
+                <p>Input name of file</p>
+                <input type="text" id="${fileNameInputId}" value="${defaultVal}" style="width:100%" />
             `,
             buttons: {
                 option1: {
                     label: "Confirm",
                     callback: (html) => {
-                        const name = html.find("input").val();
-                        return name;
+                        return html.find(`#${fileNameInputId}`).val();
                     }
                 },
             },
@@ -103,42 +110,48 @@ const getCurrentSelectionForToken = (token) => {
 }
 
 const changeNameForFile = async (actor, state) => {
-    const stateName = await promptForFileName(state);
+    const stateName = await promptForStateName(state);
     if (!stateName) return;
 
     const file = getFileForState(actor, state);
 
     await deleteImageFromState(actor, state);
-    await setStateFlag(actor, stateName, file);
+
+    if (file) {
+        await setStateFlag(actor, stateName, file);
+    }
 }
 
-const promptForTokenImage = async () => {
+const getHtmlForTokenImage = (states, currentSelection) => {
+    const options = states.map(o => {
+        const selected = currentSelection && currentSelection === o ? "selected" : "";
+        return `<option ${selected} value="${o}">${o}</option>`
+      }).join("");
+
+    return `
+        <div>
+            <label>Token Image</label>
+            <select id="selectedState">
+                ${options}
+            </select>
+        </div>
+        <input id="bloody" type=checkbox switch checked>Bloodied Enabled</input>
+    `;
+}
+
+const promptForTokenImage = async (selectedStateName = null) => {
     const states = getStates(_token.actor);
     const currentSelection = getCurrentSelectionForToken(_token);
 
     return await Dialog.wait({
         title: "Choose an Option",
-        content: `
-          <form>
-          <div class="form-group">
-              <label>Token Image</label>
-              <select id="action">
-              ${states.map(o => {
-                const selected = currentSelection && currentSelection === o ? "selected" : "";
-                return `<option ${selected} value="${o}">${o}</option>`
-              }).join("")
-              }
-              </select>
-          </div>
-          <input id="bloody" type=checkbox switch checked>Bloodied Enabled</input>
-          </form>
-        `,
+        content: getHtmlForTokenImage(states, selectedStateName || currentSelection),
         buttons: {
             option1: {
                 label: "Change Image",
                 callback: async (html) => {
-                    const selectedImage = html.find("#action").val();
-                    const selectedAction = states.find(it => it.label === selectedImage)
+                    const selectedImage = html.find("#selectedState").val();
+                    const selectedState = states.find(it => it.label === selectedImage)
 
                     const filePath = await promptFileSelection();
                     if (!filePath) {
@@ -148,7 +161,7 @@ const promptForTokenImage = async () => {
 
                     await setStateFlag(_token.actor, selectedImage, filePath);
                     promptForTokenImage();
-                    return selectedAction;
+                    return selectedState;
                 }
             },
             option2: {
@@ -160,22 +173,29 @@ const promptForTokenImage = async () => {
                     const splitFilePath = filePath.split("/");
                     const fileNameSplit = splitFilePath[splitFilePath.length - 1].split(".")[0];
 
-                    const mappingName = await promptForFileName(fileNameSplit);
+                    const stateName = await promptForStateName(fileNameSplit);
 
-                    if (!mappingName) {
+                    if (!stateName) {
                         promptForTokenImage();
                         return
                     }
 
-                    await setStateFlag(_token.actor, mappingName, filePath);
-                    promptForTokenImage();
+                    await setStateFlag(_token.actor, stateName, filePath);
+                    promptForTokenImage(stateName);
                 }
             },
             option3: {
                 label: "Use Image",
                 callback: async (html) => {
-                    const selectedImage = html.find("#action").val();
+                    const selectedImage = html.find("#selectedState").val();
                     const file = getFileForState(_token.actor, selectedImage);
+
+                    if (!file) {
+                        ui.notifications.error("No file found for state. Deleting state.");
+                        await deleteImageFromState(_token.actor, selectedImage);
+                        return;
+                    }
+
                     await setTokenImageByFile(_token, file);
 
                     const bloody = html.find("#bloody").is(":checked");
@@ -185,22 +205,15 @@ const promptForTokenImage = async () => {
             option4: {
                 label: "Delete",
                 callback: async (html) => {
-                    const selectedImage = html.find("#action").val();
-                    const file = getFileForState(_token.actor, selectedImage);
-
-                    if (file === undefined) {
-                        ui.notifications.error("No file found for state");
-                        return;
-                    };
-
-                    await deleteImageFromState(_token.actor, selectedImage);
+                    const selectedState = html.find("#selectedState").val();
+                    await deleteImageFromState(_token.actor, selectedState);
                     promptForTokenImage();
                 }
             },
             option5: {
                 label: "Change Name",
                 callback: async (html) => {
-                    const selectedImage = html.find("#action").val();
+                    const selectedImage = html.find("#selectedState").val();
                     await changeNameForFile(_token.actor, selectedImage);
                     promptForTokenImage();
                 }
@@ -208,19 +221,6 @@ const promptForTokenImage = async () => {
         },
         default: "option3"
     });
-}
-
-const toggleTokenImage = async () => {
-    const states = getStates(_token.actor);
-
-    const currentSelection = getCurrentSelectionForToken(_token);
-    const currentIndex = states.indexOf(currentSelection);
-
-    const nextIndex = (currentIndex + 1) % states.length;
-    const nextState = states[nextIndex];
-
-    const file = getFileForState(_token.actor, nextState);
-    await setTokenImageByFile(_token, file);
 }
 
 await promptForTokenImage();

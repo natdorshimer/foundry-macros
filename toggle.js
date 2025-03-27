@@ -13,24 +13,6 @@ const getFileForState = (actor, state) => {
     return stateToFile[state];
 }
 
-const promptFileSelection = ({ type = "image", current = "" } = {}) => {
-    try {
-        return new Promise((resolve) => {
-            new FilePicker({
-              type,
-              current,
-              callback: (path) => {
-                resolve(path); // Resolve the promise when a file is selected
-              }
-            }).render(true);
-          });
-    } catch (error) {
-        console.log("Error in promptFileSelection", error);
-        return null;
-    }
-    
-}
-
 const setTokenImageByFile = async (token, file) => {
     await token.document.update({ "texture.src": file})
 }
