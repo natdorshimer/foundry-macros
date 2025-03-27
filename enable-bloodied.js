@@ -64,6 +64,16 @@ const isCurrentTokenBloodied = (token) => {
     return isCurrentTokenStateFuzzy(token, "bloodied");
 }
 
+const isCurrentTokenCombat = (token) => {
+    return isCurrentTokenStateFuzzy(token, "combat");
+}
+
+const hasTokenState = (token, state) => {
+    const stateToFile = getStateToFile(token.actor);
+    if (!stateToFile) return false;
+    return getStates(token.actor).find(s => s.toLowerCase().includes(state.toLowerCase())) !== undefined;
+}
+
 const isCurrentTokenStateFuzzy = (token, state) => {
     const stateToFile = getStateToFile(token.actor);
     if (!stateToFile) return false;
@@ -78,8 +88,14 @@ const isEncounter = () => {
     return game.combat?.started
 }
 
-const unbloodyToken = async (token) => {
-    if (isEncounter()) {
+const shouldSetCombatToken = (token, isEncounter) => {
+    return isEncounter 
+        && hasTokenState(token, "combat") 
+        && !isCurrentTokenCombat(token);
+}
+
+const unbloodyToken = async (token, isEncounter) => {
+    if (shouldSetCombatToken(token, isEncounter)) {
         await setTokenImageByStateFuzzy(token, "combat");
         return;
     }
@@ -87,21 +103,36 @@ const unbloodyToken = async (token) => {
     await toggleTokenImage();
 }
 
-Hooks.on("updateActor", async (actor, _) => {
+const updateActorTokenForEncounterOrDamage = async (token, isEncounter) => {
+    const actor = token.actor;
     const hp = actor.system.attributes.hp
     const isBloodied = hp.value / hp.max <= 0.5;
 
     const bloodyEnabled = actor.flags?.personal?.tokens?.bloodied;
     if (!bloodyEnabled) return;
 
-    const isTokenBloodied = isCurrentTokenBloodied(_token);
+    const isTokenBloodied = isCurrentTokenBloodied(token);
 
     const shouldBloody = isBloodied && !isTokenBloodied;
     const shouldUnbloody = !isBloodied && isTokenBloodied;
 
     if (shouldBloody) {
-        await setTokenImageByStateFuzzy(_token, "bloodied");
+        await setTokenImageByStateFuzzy(token, "bloodied");
+        return;
     } else if (shouldUnbloody) {
-        await unbloodyToken(_token);
+        await unbloodyToken(token, isEncounter);
+        return;
     }
+
+    if (shouldSetCombatToken(token, isEncounter)) {
+        await setTokenImageByStateFuzzy(token, "combat");
+    }
+}
+
+Hooks.on("updateActor", async (actor, _) => {
+    await updateActorTokenForEncounterOrDamage(_token, isEncounter());
 });
+
+Hooks.on("combatStart", async () => {
+    await updateActorTokenForEncounterOrDamage(_token, true);
+})

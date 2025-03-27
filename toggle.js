@@ -47,10 +47,13 @@ const toggleTokenImage = async () => {
 const setTokenImageByStateFuzzy = async (token, state) => {
     const stateToFile = token.actor.flags.personal.tokens.stateToFile;
     const res = Object.entries(stateToFile).find(([stateKey, _]) => stateKey.toLowerCase().includes(state.toLowerCase()));
-    if (!res) return;
+    if (!res) {
+        console.log("No state found for", state);
+        return;
+    }
 
     const file = res[1];
-    await setTokenImageByFile(_token, file)
+    await setTokenImageByFile(token, file)
 }
 
 await toggleTokenImage();
