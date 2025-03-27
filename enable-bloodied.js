@@ -15,24 +15,6 @@ const getFileForState = (actor, state) => {
     return stateToFile[state];
 }
 
-const promptFileSelection = ({ type = "image", current = "" } = {}) => {
-    try {
-        return new Promise((resolve) => {
-            new FilePicker({
-              type,
-              current,
-              callback: (path) => {
-                resolve(path); // Resolve the promise when a file is selected
-              }
-            }).render(true);
-          });
-    } catch (error) {
-        console.log("Error in promptFileSelection", error);
-        return null;
-    }
-    
-}
-
 const setTokenImageByFile = async (token, file) => {
     await token.document.update({ "texture.src": file})
 }
@@ -92,20 +74,34 @@ const isCurrentTokenStateFuzzy = (token, state) => {
     return currentState.toLowerCase().includes(state.toLowerCase());
 }
 
-Hooks.on("updateActor", async (actor, _) => {
-    const hp = actor.system.attributes.hp
-    const is_bloodied = hp.value / hp.max <= 0.5;
+const isEncounter = () => {
+    return game.combat?.started
+}
 
-    const bloody_enabled = actor.flags?.personal?.tokens?.bloodied;
-    const isTokenBloodied = isCurrentTokenBloodied(_token);
-
-    if (!bloody_enabled) return;
-
-    if (is_bloodied && !isTokenBloodied) {
-        await setTokenImageByStateFuzzy(_token, "bloodied");
+const unbloodyToken = async (token) => {
+    if (isEncounter()) {
+        await setTokenImageByStateFuzzy(token, "combat");
+        return;
     }
 
-    if (!is_bloodied && isTokenBloodied) {
-        await toggleTokenImage();
+    await toggleTokenImage();
+}
+
+Hooks.on("updateActor", async (actor, _) => {
+    const hp = actor.system.attributes.hp
+    const isBloodied = hp.value / hp.max <= 0.5;
+
+    const bloodyEnabled = actor.flags?.personal?.tokens?.bloodied;
+    if (!bloodyEnabled) return;
+
+    const isTokenBloodied = isCurrentTokenBloodied(_token);
+
+    const shouldBloody = isBloodied && !isTokenBloodied;
+    const shouldUnbloody = !isBloodied && isTokenBloodied;
+
+    if (shouldBloody) {
+        await setTokenImageByStateFuzzy(_token, "bloodied");
+    } else if (shouldUnbloody) {
+        await unbloodyToken(_token);
     }
 });
