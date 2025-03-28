@@ -46,7 +46,10 @@ const toggleTokenImage = async () => {
 const setTokenImageByStateFuzzy = async (token, state) => {
     const stateToFile = getStateToFile(token.actor);
     const res = Object.entries(stateToFile).find(([stateKey, _]) => stateKey.toLowerCase().includes(state.toLowerCase()));
-    if (!res) return;
+    if (!res) {
+        ui.notifications.error(`State ${state} not found. Add an image for this state in the actor's token settings.`);
+        return;
+    }
 
     const file = res[1];
     await setTokenImageByFile(_token, file)
@@ -103,36 +106,50 @@ const unbloodyToken = async (token, isEncounter) => {
     await toggleTokenImage();
 }
 
-const updateActorTokenForEncounterOrDamage = async (token, isEncounter) => {
-    const actor = token.actor;
-    const hp = actor.system.attributes.hp
-    const isBloodied = hp.value / hp.max <= 0.5;
-
-    const bloodyEnabled = actor.flags?.personal?.tokens?.bloodied;
-    if (!bloodyEnabled) return;
-
-    const isTokenBloodied = isCurrentTokenBloodied(token);
-
-    const shouldBloody = isBloodied && !isTokenBloodied;
-    const shouldUnbloody = !isBloodied && isTokenBloodied;
-
-    if (shouldBloody) {
+const updateActorToken = async (token, actorBloodied, isEncounter, tokenBloodied, tokenCombat) => {
+    if (actorBloodied && !tokenBloodied) {
         await setTokenImageByStateFuzzy(token, "bloodied");
         return;
-    } else if (shouldUnbloody) {
+    }
+    
+    if (!actorBloodied && tokenBloodied) {
         await unbloodyToken(token, isEncounter);
         return;
     }
 
-    if (shouldSetCombatToken(token, isEncounter)) {
+    if (isEncounter && !tokenCombat) {
         await setTokenImageByStateFuzzy(token, "combat");
+        return;
+    }
+
+    if (!isEncounter && tokenCombat) {
+        await setTokenImageByStateFuzzy(token, "normal");
+        return;
     }
 }
 
+const isActorBloodied = (actor) => {
+    const hp = actor.system.attributes.hp
+    return hp.value / hp.max <= 0.5;
+}
+
+const updateTokenImage = async (token, isEncounter) => {
+    const bloodyEnabled = actor.flags?.personal?.tokens?.bloodied;
+    if (!bloodyEnabled) return;
+
+    await updateActorToken(
+        token, 
+        isActorBloodied(actor), 
+        isEncounter, 
+        isCurrentTokenBloodied(token), 
+        isCurrentTokenCombat(token)
+    );
+}
+
 Hooks.on("updateActor", async (actor, _) => {
-    await updateActorTokenForEncounterOrDamage(_token, isEncounter());
+    await updateTokenImage(_token, isEncounter());
 });
 
 Hooks.on("combatStart", async () => {
-    await updateActorTokenForEncounterOrDamage(_token, true);
-})
+    await updateTokenImage(_token, true);
+});
